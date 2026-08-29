@@ -1,0 +1,35 @@
+# Data - tracked by DVC instead of Git
+/data/raw/PetImages
+/data/processed
+
+# DVC will still track the small .dvc pointer files - keep those
+!*.dvc
+
+# MLflow local tracking store (each teammate/CI run generates its own)
+mlruns/
+mlartifacts/
+
+# Model artifacts (large binary - track via DVC/MLflow, not git)
+models/*.pt
+models/*.pth
+models/*.h5
+models/*.pkl
+!models/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+env/
+*.egg-info/
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
