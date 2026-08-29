@@ -1,0 +1,25 @@
+# M4 deployment target: Docker Compose, running the image published to
+# GHCR in M3. This is used two ways:
+#   1. Automatically by .github/workflows/cd.yml (CD pipeline) on an
+#      ephemeral GitHub Actions runner: pull -> deploy -> smoke test -> teardown.
+#   2. Manually on your own machine (see README.md section 12) - useful for
+#      a hands-on demo / screen recording, acting as the "simple VM server"
+#      deployment target described in the assignment.
+#
+# IMAGE_TAG is set by the CD workflow to the exact commit that was just
+# built (e.g. "sha-a1b2c3d"), so CD always deploys precisely what CI just
+# published - not whatever "latest" happens to point to at that instant.
+# Locally it defaults to "latest" if you don't set IMAGE_TAG yourself.
+services:
+  pet-classifier-api:
+    image: ghcr.io/pr-badrinath/pet-classifier-api:${IMAGE_TAG:-latest}
+    container_name: pet-classifier-api
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s

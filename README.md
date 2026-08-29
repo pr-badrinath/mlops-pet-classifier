@@ -264,8 +264,184 @@ of `/predict/base64` (or vice versa). Check `/docs` for the exact expected shape
 `python-multipart` must be installed (`pip install -r requirements.txt` covers it) — FastAPI
 needs it specifically to parse `UploadFile`/form-data.
 
-## 10. What's next (later milestones)
+## 10. M3 — CI Pipeline for Build, Test & Image Creation
 
-- **M3:** GitHub Actions CI — run `pytest`, build the Docker image, push to a registry.
-- **M4:** CD to Docker Compose / Kubernetes with automated smoke tests (reuse `scripts/smoke_test.py`).
-- **M5:** Request/response logging, basic metrics, post-deployment monitoring.
+`.github/workflows/ci.yml` defines a two-job GitHub Actions pipeline:
+
+1. **`test`** — checks out the repo, installs dependencies (CPU-only torch to keep CI fast),
+   and runs `pytest tests/ -v`.
+2. **`build-and-push`** — only runs if `test` passes. Builds the Docker image (same
+   `Dockerfile` from M2) and pushes it to **GitHub Container Registry (GHCR)**, tagged both
+   `latest` (on the default branch) and with the short commit SHA.
+
+Triggers: every push to `main`/`master`, every pull request targeting them, and manually via
+the Actions tab (`workflow_dispatch`). On pull requests the image is built (to catch Dockerfile
+errors) but not pushed, since PR code isn't necessarily trustworthy/mergeable yet.
+
+No secrets or registry account setup needed — GHCR authenticates using the built-in
+`GITHUB_TOKEN` that Actions provides automatically.
+
+### 10.1 One-time setup: push this repo to GitHub
+
+If you haven't already:
+```bash
+# Create a new repo on github.com first (empty, no README/license), then:
+git remote add origin https://github.com/<your-username>/<your-repo>.git
+git branch -M main
+git add .
+git commit -m "M3: CI pipeline (test + build + push to GHCR)"
+git push -u origin main
+```
+
+Pushing triggers the workflow automatically — no extra setup required.
+
+### 10.2 Verify the pipeline ran
+
+1. On GitHub, open your repo → **Actions** tab.
+2. You should see a run named "CI - Build, Test & Image Creation" — click it.
+3. Confirm both jobs (`Unit Tests`, `Build & Push Docker Image`) show green checkmarks.
+4. Expand `Unit Tests` → `Run unit tests` step to see the full pytest output.
+5. Expand `Build & Push Docker Image` → `Build and push` step to confirm the image pushed.
+
+### 10.3 Verify the published image
+
+1. On your repo's main page, look at the right sidebar → **Packages** → click `pet-classifier-api`.
+   (If you don't see a Packages section, go to `https://github.com/<your-username>?tab=packages`.)
+2. You should see tags `latest` and a short-SHA tag (e.g. `sha-a1b2c3d`).
+3. Pull and run the *published* image (proves it's not just working locally) — replace
+   `<your-username>` below:
+   ```bash
+   docker pull ghcr.io/<your-username>/pet-classifier-api:latest
+   docker run -p 8000:8000 ghcr.io/<your-username>/pet-classifier-api:latest
+   ```
+4. Hit it the same way as before:
+   ```bash
+   curl http://localhost:8000/health
+   python scripts/smoke_test.py --image path\to\pet.jpg
+   ```
+
+> **Package visibility:** GHCR packages inherit your repo's visibility - if your repo is
+> private, the package is private too, and `docker pull` on another machine needs
+> `docker login ghcr.io` first. To make it public: repo → Packages → pet-classifier-api →
+> Package settings → Change visibility.
+
+### 10.4 Trigger CI again (to see it re-run)
+
+Any push re-triggers the pipeline. Cheapest way to test this without a real code change:
+```bash
+git commit --allow-empty -m "Trigger CI"
+git push
+```
+
+### 10.5 Troubleshooting
+
+**`Run unit tests` step fails in CI but passes locally**
+Usually a path or environment difference. Check the CI log's exact `pytest` output — it's
+running from the repo root the same as `pytest tests/ -v` locally, so behavior should match.
+
+**`build-and-push` fails at the `COPY models/model.pt` step**
+`model.pt` isn't committed to git (check `git ls-files models/` — should list `model.pt`). See
+`.gitignore` §"Model artifacts" — it's deliberately *not* ignored so CI can see it.
+
+**`permission denied` pushing to GHCR**
+The job needs `permissions: packages: write` (already set in `ci.yml`) — if you forked/copied
+this workflow into an org repo with restricted default permissions, check
+Settings → Actions → General → Workflow permissions is set to allow this.
+
+## 12. M4 — CD Pipeline & Deployment
+
+**Deployment target: Docker Compose.** `docker-compose.yml` runs the exact image M3's CI
+pipeline just built and pushed to GHCR — chosen because it builds directly on the Docker
+work from M2/M3 without needing a separate Kubernetes cluster (kind/minikube), while still
+fully satisfying the assignment's "Docker Compose, or a simple VM server" option.
+
+**CD tool: GitHub Actions**, via `.github/workflows/cd.yml`. It triggers automatically the
+moment M3's CI workflow finishes successfully on a push to `main`/`master` (not on pull
+requests, since PR builds don't push a new image). The job:
+1. Checks out the repo at the exact commit CI just built
+2. Logs into GHCR and `docker compose pull`s that commit's image (tag `sha-<short-sha>`,
+   matching the tags M3's CI already pushes — so CD always deploys precisely what was just
+   built, not whatever "latest" happens to be at that instant)
+3. `docker compose up -d --wait` — deploys and waits for the container's health check to pass
+4. Runs `scripts/smoke_test.py` against the freshly deployed container (health check + both
+   predict endpoints) using a small synthetic image committed at `tests/fixtures/sample_pet.jpg`
+   (CI runs on GitHub's servers, so it can't reach files on your laptop)
+5. Tears the deployment down (this is an ephemeral demo deployment on the CI runner, not a
+   persistent server — see §12.3 for running it as a real standing deployment on your machine)
+
+A failing smoke test fails the step, which fails the job — satisfying "fail the pipeline if
+smoke tests fail" directly (no extra logic needed: a non-zero exit code from the script does this).
+
+### 12.1 One-time setup
+
+Nothing extra needed beyond M3 — `cd.yml` reuses the same `GITHUB_TOKEN` GHCR login M3 already
+uses. Just make sure `docker-compose.yml`, `.github/workflows/cd.yml`, and
+`tests/fixtures/sample_pet.jpg` are committed and pushed.
+
+```bash
+git add docker-compose.yml .github/workflows/cd.yml tests/fixtures/sample_pet.jpg README.md
+git commit -m "M4: CD pipeline (Docker Compose deploy + smoke tests)"
+git push
+```
+
+### 12.2 Verify the CD pipeline ran
+
+1. Pushing triggers M3's CI first — wait for it to go green (Actions tab).
+2. CD then triggers automatically. Refresh the Actions tab — you should see a second workflow,
+   **"CD - Deploy & Smoke Test"**, start shortly after CI finishes.
+3. Click into it, confirm the job is green, and expand each step:
+   - `Pull the newly published image` — confirms `docker compose pull` succeeded
+   - `Deploy and wait for the container to report healthy` — confirms the container came up healthy
+   - `Run post-deploy smoke test` — shows the same `[health]`/`[predict]` output you saw testing locally
+   - `Tear down` — always runs, cleans up the runner regardless of outcome
+
+**First time only:** since this is the very first push with `cd.yml` present, there's no prior
+CI run for it to chain off. If CD doesn't appear automatically, trigger it manually once: Actions
+tab → "CD - Deploy & Smoke Test" → **Run workflow** (uses the `latest` tag). Every push after
+this will chain automatically.
+
+### 12.3 Run the same deployment on your own machine
+
+This is the most convincing thing to show in your screen recording — a real, standing
+deployment you can poke at live, using the exact same manifest CD uses:
+
+```powershell
+docker compose pull      # IMAGE_TAG unset locally -> defaults to "latest"
+docker compose up -d
+docker compose ps        # confirm STATUS shows "healthy"
+
+curl.exe http://localhost:8000/health
+python scripts\smoke_test.py --image "C:\path\to\any_pet.jpg"
+
+# when done:
+docker compose down
+```
+
+### 12.4 Troubleshooting
+
+**CD workflow never appears / doesn't trigger**
+`workflow_run` only fires for workflows that exist in the *default branch* at trigger time —
+if `cd.yml` was added in the same push as everything else, that's fine (default branch is
+correctly established by the time CI finishes). If it still doesn't appear, use the manual
+`Run workflow` button once as described in §12.2.
+
+**`docker compose pull` fails with "manifest unknown" / image not found**
+The `sha-<short-sha>` tag CD is trying to pull doesn't exist on GHCR yet. Almost always means
+CI ran on a `pull_request` event (which only builds, doesn't push) rather than a `push` — the
+workflow's `if:` condition is supposed to filter this out, but double-check you pushed directly
+to `main`/`master` rather than only opening a PR.
+
+**`docker compose up -d --wait` times out**
+Check the `Show container logs` step (only appears on failure) for the actual startup error —
+most likely the image itself is fine (you already verified it in M3) and this points to a
+transient GHCR pull hiccup; re-running the job usually resolves it.
+
+**Works in CD but not locally, or vice versa**
+Confirm `docker-compose.yml`'s hardcoded GHCR owner (`pr-badrinath`) matches your actual GitHub
+username — if you fork/rename, update that one line.
+
+## 13. What's next (M5)
+
+- Request/response logging (excluding sensitive data) in the inference service
+- Basic metrics: request count, latency
+- Post-deployment model performance tracking on a batch of real/simulated requests
