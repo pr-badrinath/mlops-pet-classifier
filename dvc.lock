@@ -1,0 +1,69 @@
+schema: '2.0'
+stages:
+  preprocess:
+    cmd: python src/data_preprocessing.py --params params.yaml
+    deps:
+    - path: data/raw/PetImages
+      hash: md5
+      md5: 3a5cf86541f22c236620ce5b952ad684.dir
+      size: 848866410
+      nfiles: 24998
+    - path: src/data_preprocessing.py
+      hash: md5
+      md5: 6664796b557d7a213409ae8f7f67991d
+      size: 5885
+    params:
+      params.yaml:
+        data:
+          raw_dir: data/raw/PetImages
+          processed_dir: data/processed
+          image_size: 224
+          train_ratio: 0.8
+          val_ratio: 0.1
+          test_ratio: 0.1
+        seed: 42
+    outs:
+    - path: data/processed
+      hash: md5
+      md5: 552e40e6db69bf38fefa1d14c24a53a2.dir
+      size: 513671086
+      nfiles: 24998
+  train:
+    cmd: python src/train.py --params params.yaml
+    deps:
+    - path: data/processed
+      hash: md5
+      md5: 552e40e6db69bf38fefa1d14c24a53a2.dir
+      size: 513671086
+      nfiles: 24998
+    - path: src/dataset.py
+      hash: md5
+      md5: d1aa29e6591f20d1731f2374d9bfe1fb
+      size: 2648
+    - path: src/model.py
+      hash: md5
+      md5: 4498f3fcbcd437c5410b478a64ab52a7
+      size: 3199
+    - path: src/train.py
+      hash: md5
+      md5: 845265464e424db07dd5cee5ebb727a9
+      size: 9251
+    params:
+      params.yaml:
+        data.image_size: 224
+        seed: 42
+        train:
+          batch_size: 32
+          epochs: 5
+          learning_rate: 0.001
+          num_workers: 2
+          model_name: simple_cnn
+    outs:
+    - path: artifacts_tmp/classification_report.txt
+      hash: md5
+      md5: bb24dabcd90b22e631a0a0e8f75ba627
+      size: 334
+    - path: models/model.pt
+      hash: md5
+      md5: ff4906ccfca3a57ddbc66ee5ee6b497b
+      size: 111761

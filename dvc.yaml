@@ -1,0 +1,37 @@
+stages:
+  preprocess:
+    cmd: python src/data_preprocessing.py --params params.yaml
+    deps:
+      - src/data_preprocessing.py
+      - data/raw/PetImages
+    params:
+      - params.yaml:
+          - data
+          - seed
+    outs:
+      - data/processed
+
+  train:
+    cmd: python src/train.py --params params.yaml
+    deps:
+      - src/train.py
+      - src/model.py
+      - src/dataset.py
+      - data/processed
+    params:
+      - params.yaml:
+          - train
+          - data.image_size
+          - seed
+    outs:
+      # cache: false = DVC still tracks this as a declared pipeline output
+      # (records its hash in dvc.lock for reproducibility checks) but does
+      # NOT move it into the DVC cache or .gitignore it - it stays a normal
+      # git-tracked file. We want this because M3's CI pipeline builds a
+      # Docker image straight from a `git checkout`, with no DVC remote
+      # configured in CI, so model.pt must be retrievable via git alone.
+      - models/model.pt:
+          cache: false
+    metrics:
+      - artifacts_tmp/classification_report.txt:
+          cache: false
