@@ -1,0 +1,22 @@
+.git
+.dvc
+.dvcignore
+.pytest_cache
+__pycache__
+*.pyc
+.venv
+venv
+env
+
+# Data and experiment tracking - not needed in the serving image
+data/
+mlruns/
+mlflow.db
+artifacts_tmp/
+notebooks/
+
+# Tests aren't needed at runtime (they run in CI, not in the serving container)
+tests/
+
+# Docs
+*.md

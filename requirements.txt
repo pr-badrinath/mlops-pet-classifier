@@ -1,0 +1,37 @@
+# Core ML
+torch==2.2.2
+torchvision==0.17.2
+numpy==1.26.4
+pillow==10.3.0
+scikit-learn==1.4.2
+
+# Experiment tracking
+mlflow==2.11.3
+
+# mlflow's internals still import pkg_resources at runtime; Python 3.12+
+# no longer ships setuptools by default, so pin it explicitly.
+setuptools>=68
+
+# Plotting (for confusion matrix / loss curves logged to MLflow)
+matplotlib==3.8.4
+seaborn==0.13.2
+
+# Data & pipeline versioning
+# (left unpinned - DVC's own dependency resolver picks a compatible pathspec;
+# pinning dvc too tightly can conflict with newer pathspec releases)
+dvc>=3.50
+
+# Config
+pyyaml==6.0.1
+
+# Utilities
+tqdm==4.66.2
+
+# Testing
+pytest==8.1.1
+
+# M2: Inference service (REST API + containerization)
+fastapi==0.110.2
+uvicorn[standard]==0.29.0
+python-multipart==0.0.9     # required by FastAPI for multipart/form-data (file uploads)
+requests==2.31.0            # used by scripts/smoke_test.py to exercise the running API

@@ -8,13 +8,25 @@
 # MLflow local tracking store (each teammate/CI run generates its own)
 mlruns/
 mlartifacts/
+mlflow.db
 
-# Model artifacts (large binary - track via DVC/MLflow, not git)
-models/*.pt
+# Model artifacts: the final trained baseline model (models/model.pt) is
+# intentionally COMMITTED to git, not ignored - the M3 CI pipeline's Docker
+# build step needs it present in the checked-out repo, and SimpleCNN is
+# tiny (~0.1MB) so this is cheap. If you retrain and want to keep some
+# experimental checkpoint out of git, name it something other than
+# model.pt/model.pth and it'll stay ignored below.
 models/*.pth
 models/*.h5
 models/*.pkl
 !models/.gitkeep
+!models/model.pt
+
+# Misc pipeline scratch space - classification_report.txt is the one
+# exception: dvc.yaml declares it as a cache:false pipeline metric, meaning
+# DVC expects it to be tracked via git directly, not ignored.
+artifacts_tmp/*
+!artifacts_tmp/classification_report.txt
 
 # Python
 __pycache__/

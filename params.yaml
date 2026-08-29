@@ -1,0 +1,25 @@
+# Central configuration for the pipeline.
+# Read by both src/data_preprocessing.py and src/train.py so that
+# DVC can track how outputs change when these change (dvc.yaml depends on this file).
+
+seed: 42
+
+data:
+  raw_dir: "data/raw/PetImages"
+  processed_dir: "data/processed"
+  image_size: 224          # 224x224 RGB as required by the assignment
+  train_ratio: 0.8
+  val_ratio: 0.1
+  test_ratio: 0.1
+
+train:
+  batch_size: 32
+  epochs: 5                # bump this up once you run on the full 25k-image dataset
+  learning_rate: 0.001
+  num_workers: 2
+  model_name: "simple_cnn"
+
+mlflow:
+  experiment_name: "cats_vs_dogs_classification"
+  tracking_uri: "sqlite:///mlflow.db"
+  artifact_location: "mlruns"
