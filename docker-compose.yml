@@ -17,6 +17,13 @@ services:
     ports:
       - "8000:8000"
     restart: unless-stopped
+    environment:
+      - LOG_DIR=/app/logs
+    volumes:
+      # M5: persist structured access/prediction logs outside the
+      # container so they survive restarts and are easy to inspect locally
+      # (./logs/access.log, ./logs/prediction.log) without `docker exec`.
+      - ./logs:/app/logs
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
       interval: 5s

@@ -440,8 +440,115 @@ transient GHCR pull hiccup; re-running the job usually resolves it.
 Confirm `docker-compose.yml`'s hardcoded GHCR owner (`pr-badrinath`) matches your actual GitHub
 username — if you fork/rename, update that one line.
 
-## 13. What's next (M5)
+## 13. M5 — Monitoring, Logs & Final Submission
 
-- Request/response logging (excluding sensitive data) in the inference service
-- Basic metrics: request count, latency
-- Post-deployment model performance tracking on a batch of real/simulated requests
+### 13.1 Request/response logging
+
+Every request gets a structured **JSON access-log line** (via FastAPI middleware in `src/app.py`):
+method, path, status code, latency, client IP. Every successful prediction additionally gets a
+**prediction log line**: input metadata (filename, content-type, byte size — never the raw
+image or base64 content itself), predicted label, probabilities, inference latency. Invalid
+uploads log a warning too, so failed requests are traceable.
+
+Logs go to two places simultaneously:
+- **stdout** — so `docker compose logs` / `docker logs` show them live, as any container log
+  aggregator (CloudWatch, Loki, etc.) would expect
+- **rotating files** under `LOG_DIR` (default `logs/`, mounted via `docker-compose.yml` as
+  `./logs:/app/logs` so they persist on your host, not just inside the ephemeral container)
+
+**Why no image data is logged:** raw image bytes/base64 strings are large and offer no
+debugging value in a log line — only metadata about them (size, filename, content-type) is
+logged, satisfying "excluding sensitive data."
+
+### 13.2 Basic metrics
+
+`GET /metrics` returns in-app counters (no external dependency — the assignment explicitly
+allows "simple in-app counters" as an alternative to Prometheus):
+```json
+{
+  "uptime_seconds": 128.4,
+  "endpoints": {
+    "/predict": {"request_count": 12, "error_count": 0, "avg_latency_ms": 21.3, "min_latency_ms": 17.1, "max_latency_ms": 32.0},
+    "/health": {"request_count": 3, "error_count": 0, "avg_latency_ms": 0.8, "min_latency_ms": 0.6, "max_latency_ms": 1.1}
+  }
+}
+```
+Note this is in-process state — it resets if the container restarts. That's an intentional
+scope choice for "basic" monitoring; a production system would ship these to Prometheus/Grafana
+for durable, cross-instance metrics instead (mentioned as a natural next step, not implemented
+here to keep the dependency footprint minimal).
+
+### 13.3 Post-deployment model performance tracking
+
+`scripts/monitor_performance.py` sends a small batch of **labeled** images (known Cat/Dog
+ground truth) to a *running* deployment's `/predict` endpoint, then reports accuracy,
+precision/recall, and a confusion matrix — simulating real post-deployment traffic with known
+outcomes, distinct from M1's training-time MLflow metrics.
+
+```bash
+python scripts/monitor_performance.py --samples-per-class 5
+```
+Saves a timestamped JSON report to `monitoring/reports/perf_report_<timestamp>.json` and prints
+a live summary. Flags: `--url` (target API, default `http://localhost:8000`), `--data-dir`
+(labeled image folder, default `data/raw/PetImages`), `--samples-per-class`.
+
+### 13.4 How to test M5
+
+```bash
+# 1. Start the service (locally or via docker compose - either works)
+uvicorn app:app --app-dir src --host 0.0.0.0 --port 8000
+# or: docker compose up -d
+
+# 2. Generate some traffic
+python scripts/smoke_test.py --image path\to\pet.jpg
+
+# 3. Check metrics reflect it
+curl.exe http://localhost:8000/metrics
+
+# 4. Check the logs (pick whichever you're running)
+type logs\access.log
+type logs\prediction.log
+# or, if running via docker compose:
+docker compose logs -f pet-classifier-api
+
+# 5. Run post-deployment performance tracking
+python scripts/monitor_performance.py --samples-per-class 5
+type monitoring\reports\perf_report_*.json
+```
+
+Expect: `/metrics` request counts increase with each call you make; `logs/prediction.log` shows
+one JSON line per prediction with label + probabilities but no image data; the performance
+report shows accuracy roughly matching your M1 test-set accuracy (small-batch sampling means
+some run-to-run variance is normal).
+
+## 14. Final Submission Packaging
+
+The assignment asks for a zip of all source code, configuration files (DVC, CI/CD, Docker,
+deployment manifests), and trained model artifacts. `git archive` is the cleanest way to produce
+exactly that — it zips precisely what's tracked in git at your current commit, which by
+construction excludes the raw dataset (DVC-tracked, gitignored) and every other ignored file,
+while including source, configs, workflows, and `models/model.pt`:
+
+```bash
+git archive -o submission.zip HEAD
+```
+
+Sanity-check the contents before submitting:
+```bash
+unzip -l submission.zip | head -50
+```
+You should see `src/`, `tests/`, `.github/workflows/`, `Dockerfile`, `docker-compose.yml`,
+`dvc.yaml`, `params.yaml`, `models/model.pt`, `README.md` — and should **not** see
+`data/raw/PetImages/*.jpg` or `mlruns/`.
+
+### Screen recording checklist (< 5 minutes)
+
+A suggested run-through covering "code change to deployed model prediction" end-to-end:
+1. Make a trivial code change (e.g. a comment) and `git commit` + `git push`
+2. Show the **Actions** tab: CI (test → build → push) going green
+3. Show CD auto-triggering and going green (deploy → smoke test → teardown)
+4. `docker compose pull && docker compose up -d` locally — a live, standing deployment
+5. Hit `/health`, `/predict` (curl or Swagger UI at `/docs`), and `/metrics`
+6. Show `logs/prediction.log` growing with each request
+7. Run `scripts/monitor_performance.py` and show the accuracy report
+8. `mlflow ui --backend-store-uri sqlite:///mlflow.db` — briefly show the M1 training run/artifacts for completeness

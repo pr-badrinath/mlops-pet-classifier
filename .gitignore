@@ -22,6 +22,11 @@ models/*.pkl
 !models/.gitkeep
 !models/model.pt
 
+# M5: runtime-generated logs and performance monitoring reports - these
+# are regenerated every run, not something to version.
+logs/
+monitoring/reports/
+
 # Misc pipeline scratch space - classification_report.txt is the one
 # exception: dvc.yaml declares it as a cache:false pipeline metric, meaning
 # DVC expects it to be tracked via git directly, not ignored.
